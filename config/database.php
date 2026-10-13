@@ -8,7 +8,7 @@
 
 define('DB_HOST', 'localhost');
 define('DB_PORT', 3306);
-define('DB_NAME', 'library_management_system');
+define('DB_NAME', getenv('LIBMS_DB_NAME') ?: 'library_management_system'); // env override is for testing
 define('DB_USER', 'root');
 define('DB_PASS', '');
 

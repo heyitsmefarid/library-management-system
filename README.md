@@ -38,10 +38,15 @@ Open this folder in VS Code, make sure MySQL is started in Laragon and `database
 |----------|------------|
 | `admin`  | `admin123` |
 
-After signing in for the first time:
+This password is public, so the system **will not let you do anything else until you replace it**: after signing in you are taken to **Settings → My account** to set a new password (at least 8 characters with letters and numbers; it cannot be `admin123` again).
 
-1. Go to **Settings → My account** and change the password. The new password needs at least 8 characters with letters and numbers.
-2. To add more librarians, go to **Settings → Administrators → Add administrator**. There is no public sign-up page; only a signed-in administrator can create accounts.
+To add more librarians, go to **Settings → Administrators → Add administrator**. There is no public sign-up page; only a signed-in administrator can create accounts. The password you give a new administrator is temporary — they must choose their own at first sign-in.
+
+**Updating an existing installation?** If you imported an older `database.sql`, run this once to add the new security columns (it keeps all your data and is safe to run again):
+
+```
+C:\xampp\php\php.exe setup\migrate.php
+```
 
 **Forgot the password?** Reset it from the command line. The script works only from the CLI, never from a browser:
 
@@ -98,7 +103,9 @@ To start empty, delete the sample books and users from the interface. You can al
 - Passwords are hashed with `password_hash()` (bcrypt).
 - On login the session ID is regenerated. The session cookie is HttpOnly and SameSite=Lax.
 - Sessions sign out after 60 minutes of inactivity.
-- After 5 failed logins, the login is locked for 5 minutes.
+- After 5 failed sign-ins the **account** is locked for 5 minutes. The count is kept in the database, so clearing cookies or using another browser does not reset it. Unknown usernames get the same message as wrong passwords.
+- The default `admin123` password, and any password set by another administrator, must be replaced before the rest of the system can be used.
+- Changing or resetting a password signs that account out of every other browser; deactivating an administrator ends their sessions immediately.
 - Every form carries a CSRF token, and every query uses prepared statements. All output is escaped.
 - Stock-changing operations run inside database transactions with row locks: borrowing, returning, payments and copy adjustments.
 - `.htaccess` files block direct browser access to `config/`, `includes/` and `setup/`.
