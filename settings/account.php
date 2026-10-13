@@ -37,14 +37,18 @@ if (is_post()) {
         } elseif (!preg_match('/[A-Za-z]/', $new) || !preg_match('/\d/', $new)) {
             $errors['new_password'] = 'Use both letters and numbers.';
         }
+        if (!isset($errors['new_password']) && (hash_equals($current, $new) || hash_equals(DEFAULT_ADMIN_PASSWORD, $new))) {
+            $errors['new_password'] = 'Choose a password different from your current one and from the default password.';
+        }
         if ($new !== $confirm) {
             $errors['confirm_password'] = 'The passwords do not match.';
         }
         if (!$errors) {
-            db_exec('UPDATE admins SET password_hash = ? WHERE id = ?', [password_hash($new, PASSWORD_DEFAULT), $admin['id']]);
+            // Signs out every other browser using this account; this one stays signed in.
+            $_SESSION['session_version'] = set_admin_password((int) $admin['id'], $new, false);
             session_regenerate_id(true);
-            flash('success', 'Your password was changed.');
-            redirect('settings/account.php');
+            flash('success', 'Your password was changed. Any other browser signed in as you has been signed out.');
+            redirect('dashboard.php');
         }
     }
 }
@@ -61,6 +65,13 @@ $cls = fn(string $f): string => isset($errors[$f]) ? 'field has-error' : 'field'
 <div class="page-head">
     <div><h1>Settings</h1><p>Signed in as <strong><?= e($admin['username']) ?></strong></p></div>
 </div>
+
+<?php if ((int) $admin['must_change_password'] === 1): ?>
+    <div class="alert alert-warning" role="alert">
+        <span class="alert-icon"><?= icon('shield', 18) ?></span>
+        <span>This account is using a default or temporary password. Set a new password below to continue; the rest of the system stays locked until you do.</span>
+    </div>
+<?php endif; ?>
 
 <section class="card">
     <?php require __DIR__ . '/tabs.php'; ?>

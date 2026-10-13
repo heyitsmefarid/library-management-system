@@ -23,6 +23,10 @@ CREATE TABLE admins (
     full_name       VARCHAR(120) NOT NULL,
     email           VARCHAR(120) NULL,
     status          ENUM('Active','Inactive') NOT NULL DEFAULT 'Active',
+    must_change_password TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = default/temporary password; blocked until changed',
+    failed_attempts TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'consecutive failed sign-ins',
+    locked_until    DATETIME NULL COMMENT 'sign-in blocked until this time after too many failures',
+    session_version INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'bumped on password change to sign out other sessions',
     last_login      DATETIME NULL,
     created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -240,9 +244,10 @@ SET FOREIGN_KEY_CHECKS = 1;
 
 -- Default administrator
 --   username: admin
---   password: admin123   (change it right after the first login)
-INSERT INTO admins (username, password_hash, full_name, email, status) VALUES
-('admin', '$2y$10$PGpH21MfWSatbARwUo5W8eDhP.Hx4OG0ZxGWsIGlqWyfMwOVPk3v2', 'System Administrator', 'admin@library.local', 'Active');
+--   password: admin123
+-- The system blocks every page except "change password" until this is replaced.
+INSERT INTO admins (username, password_hash, full_name, email, status, must_change_password) VALUES
+('admin', '$2y$10$PGpH21MfWSatbARwUo5W8eDhP.Hx4OG0ZxGWsIGlqWyfMwOVPk3v2', 'System Administrator', 'admin@library.local', 'Active', 1);
 
 INSERT INTO settings (setting_key, setting_value, description) VALUES
 ('library_name',      'School Library',  'Name shown on the interface and on printed reports'),

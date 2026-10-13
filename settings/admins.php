@@ -27,12 +27,13 @@ if (is_post()) {
         }
         if (!$errors) {
             try {
+                // The new admin must replace this temporary password at first sign-in.
                 db_exec(
-                    'INSERT INTO admins (username, password_hash, full_name, email) VALUES (?, ?, ?, ?)',
+                    'INSERT INTO admins (username, password_hash, full_name, email, must_change_password) VALUES (?, ?, ?, ?, 1)',
                     [$form['username'], password_hash($password, PASSWORD_DEFAULT), $form['full_name'],
                      $form['email'] !== '' ? $form['email'] : null]
                 );
-                flash('success', "Administrator \"{$form['username']}\" was created.");
+                flash('success', "Administrator \"{$form['username']}\" was created. They will be asked to choose their own password at first sign-in.");
                 redirect('settings/admins.php');
             } catch (PDOException $e) {
                 if (!is_duplicate_error($e)) {
@@ -49,7 +50,8 @@ if (is_post()) {
             $target = db_one('SELECT username, status FROM admins WHERE id = ?', [$id]);
             if ($target) {
                 $new = $target['status'] === 'Active' ? 'Inactive' : 'Active';
-                db_exec('UPDATE admins SET status = ? WHERE id = ?', [$new, $id]);
+                // Bumping session_version also ends any open sessions of a deactivated admin.
+                db_exec('UPDATE admins SET status = ?, session_version = session_version + 1 WHERE id = ?', [$new, $id]);
                 flash('success', "Administrator \"{$target['username']}\" is now {$new}.");
             }
         }
@@ -63,14 +65,19 @@ if (is_post()) {
         } elseif (strlen($password) < 8 || !preg_match('/[A-Za-z]/', $password) || !preg_match('/\d/', $password)) {
             flash('danger', 'The new password must have at least 8 characters with letters and numbers.');
         } else {
-            db_exec('UPDATE admins SET password_hash = ? WHERE id = ?', [password_hash($password, PASSWORD_DEFAULT), $id]);
-            flash('success', "Password for \"{$target['username']}\" was reset.");
+            // Signs them out everywhere, unlocks the account and makes the new password temporary.
+            set_admin_password($id, $password, true);
+            flash('success', "Password for \"{$target['username']}\" was reset. They were signed out everywhere and must choose a new password at next sign-in.");
         }
         redirect('settings/admins.php');
     }
 }
 
-$admins = db_all('SELECT id, username, full_name, email, status, last_login, created_at FROM admins ORDER BY username');
+$admins = db_all(
+    'SELECT id, username, full_name, email, status, last_login, created_at, must_change_password,
+            (locked_until IS NOT NULL AND locked_until > NOW()) AS is_locked
+       FROM admins ORDER BY username'
+);
 
 $pageTitle   = 'Administrators';
 $activeNav   = 'settings';
@@ -96,7 +103,11 @@ $cls = fn(string $f): string => isset($errors[$f]) ? 'field has-error' : 'field'
                     <td class="cell-title"><?= e($a['username']) ?><?= (int) $a['id'] === $me ? ' <span class="muted">(you)</span>' : '' ?></td>
                     <td><?= e($a['full_name']) ?><span class="cell-sub"><?= e($a['email'] ?: '') ?></span></td>
                     <td class="nowrap"><?= fmt_datetime($a['last_login']) ?></td>
-                    <td><?= badge($a['status']) ?></td>
+                    <td>
+                        <?= badge($a['status']) ?>
+                        <?php if ($a['is_locked']): ?><?= badge('Locked', 'danger') ?><?php endif; ?>
+                        <?php if ($a['must_change_password']): ?><?= badge('Temporary password', 'warning') ?><?php endif; ?>
+                    </td>
                     <td class="actions">
                         <?php if ((int) $a['id'] !== $me): ?>
                             <form method="post" class="quick-entry" style="display:inline-flex;gap:6px"
