@@ -1,0 +1,24 @@
+{
+    // Run > Start Debugging (F5) or Run Without Debugging (Ctrl+F5) starts the PHP server
+    // (see tasks.json) and opens the app, no matter which file is open in the editor.
+    // Requires MySQL running and database.sql imported.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run Library System (Edge)",
+            "type": "msedge",
+            "request": "launch",
+            "url": "http://127.0.0.1:8090/",
+            "webRoot": "${workspaceFolder}",
+            "preLaunchTask": "Start PHP server"
+        },
+        {
+            "name": "Run Library System (Chrome)",
+            "type": "chrome",
+            "request": "launch",
+            "url": "http://127.0.0.1:8090/",
+            "webRoot": "${workspaceFolder}",
+            "preLaunchTask": "Start PHP server"
+        }
+    ]
+}
