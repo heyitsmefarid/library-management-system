@@ -1,0 +1,31 @@
+{
+    // Starts the Library system on PHP's built-in web server (Laragon PHP 8.2).
+    // MySQL must be running (start it from Laragon) for the app to reach its database.
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Start PHP server",
+            "type": "process",
+            "command": "C:/laragon/bin/php/php-8.2.27-Win32-vs16-x64/php.exe",
+            "args": [
+                "-d", "extension_dir=C:/laragon/bin/php/php-8.2.27-Win32-vs16-x64/ext",
+                "-d", "extension=pdo_mysql",
+                "-S", "127.0.0.1:8090",
+                "-t", "${workspaceFolder}"
+            ],
+            "options": { "cwd": "${workspaceFolder}" },
+            "isBackground": true,
+            "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+            // Lets VS Code know when the server is ready, so the browser opens only after it starts.
+            "problemMatcher": {
+                "owner": "php-server",
+                "pattern": { "regexp": "^(PHP (Warning|Fatal error|Parse error)):\\s+(.*) in (.*) on line (\\d+)$", "severity": 2, "message": 3, "file": 4, "line": 5 },
+                "background": {
+                    "activeBegins": true,
+                    "beginsPattern": "Development Server",
+                    "endsPattern": "Development Server \\(http://127\\.0\\.0\\.1:8090\\) started"
+                }
+            }
+        }
+    ]
+}
