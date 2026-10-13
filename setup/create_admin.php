@@ -40,8 +40,9 @@ $id = $stmt->fetchColumn();
 
 if ($id) {
     // Also unlocks the account and signs it out of every browser.
-    $pdo->prepare("UPDATE admins SET password_hash = ?, status = 'Active', failed_attempts = 0, locked_until = NULL,
-                          session_version = session_version + 1 WHERE id = ?")->execute([$hash, $id]);
+    $pdo->prepare("UPDATE admins SET password_hash = ?, status = 'Active', session_version = session_version + 1
+                    WHERE id = ?")->execute([$hash, $id]);
+    $pdo->prepare('DELETE FROM login_attempts WHERE username = ?')->execute([strtolower($username)]);
     echo "Password reset for administrator '{$username}'. The account is unlocked and signed out everywhere.\n";
 } else {
     $pdo->prepare('INSERT INTO admins (username, password_hash, full_name) VALUES (?, ?, ?)')

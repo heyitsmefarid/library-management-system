@@ -67,15 +67,14 @@ if (is_post()) {
         } else {
             // Signs them out everywhere, unlocks the account and makes the new password temporary.
             set_admin_password($id, $password, true);
-            flash('success', "Password for \"{$target['username']}\" was reset. They were signed out everywhere and must choose a new password at next sign-in.");
+            flash('success', "Password for \"{$target['username']}\" was reset. They were signed out everywhere, any sign-in block on the account was lifted, and they must choose a new password at next sign-in.");
         }
         redirect('settings/admins.php');
     }
 }
 
 $admins = db_all(
-    'SELECT id, username, full_name, email, status, last_login, created_at, must_change_password,
-            (locked_until IS NOT NULL AND locked_until > NOW()) AS is_locked
+    'SELECT id, username, full_name, email, status, last_login, created_at, must_change_password
        FROM admins ORDER BY username'
 );
 
@@ -105,7 +104,6 @@ $cls = fn(string $f): string => isset($errors[$f]) ? 'field has-error' : 'field'
                     <td class="nowrap"><?= fmt_datetime($a['last_login']) ?></td>
                     <td>
                         <?= badge($a['status']) ?>
-                        <?php if ($a['is_locked']): ?><?= badge('Locked', 'danger') ?><?php endif; ?>
                         <?php if ($a['must_change_password']): ?><?= badge('Temporary password', 'warning') ?><?php endif; ?>
                     </td>
                     <td class="actions">

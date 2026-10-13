@@ -14,8 +14,12 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/functions.php';
 
 const SESSION_IDLE_LIMIT = 3600;   // seconds of inactivity before automatic logout
-const LOGIN_MAX_ATTEMPTS = 5;      // failed attempts before the account is locked
-const LOGIN_LOCK_SECONDS = 300;    // how long a locked account stays locked
+// Sign-in throttling is per computer (IP address), never per account, so a stranger
+// cannot lock the librarian out and the lock looks the same for real and made-up usernames.
+const LOGIN_MAX_ATTEMPTS    = 5;    // failures for one username from one computer...
+const LOGIN_WINDOW_SECONDS  = 300;  // ...within this window block that pair
+const LOGIN_MAX_IP_ATTEMPTS = 20;   // failures across all usernames from one computer...
+const LOGIN_IP_WINDOW       = 900;  // ...within this window block that computer
 const DEFAULT_ADMIN_PASSWORD = 'admin123'; // the published seed password; never allowed to stay in use
 
 function start_secure_session(): void
@@ -112,43 +116,84 @@ function require_login(): void
     }
 }
 
+/** Client address used for throttling. Only REMOTE_ADDR: forwarded headers can be forged. */
+function client_ip(): string
+{
+    return substr((string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown'), 0, 45);
+}
+
+/** Usernames are compared case-insensitively, like the admins table collation. */
+function login_key(string $username): string
+{
+    return mb_substr(mb_strtolower(trim($username)), 0, 50);
+}
+
+/**
+ * Seconds this computer must wait before trying this username again, or 0.
+ * Applies to every username typed, real or not, so it reveals nothing about accounts.
+ */
+function login_wait_seconds(string $username): int
+{
+    $ip   = client_ip();
+    $pair = db_one(
+        'SELECT COUNT(*) AS n, MIN(attempted_at) AS oldest FROM login_attempts
+          WHERE username = ? AND ip_address = ? AND attempted_at > DATE_SUB(NOW(), INTERVAL ? SECOND)',
+        [login_key($username), $ip, LOGIN_WINDOW_SECONDS]
+    );
+    $host = db_one(
+        'SELECT COUNT(*) AS n, MIN(attempted_at) AS oldest FROM login_attempts
+          WHERE ip_address = ? AND attempted_at > DATE_SUB(NOW(), INTERVAL ? SECOND)',
+        [$ip, LOGIN_IP_WINDOW]
+    );
+
+    $wait = 0;
+    if ((int) $pair['n'] >= LOGIN_MAX_ATTEMPTS) {
+        $wait = max($wait, strtotime($pair['oldest']) + LOGIN_WINDOW_SECONDS - time());
+    }
+    if ((int) $host['n'] >= LOGIN_MAX_IP_ATTEMPTS) {
+        $wait = max($wait, strtotime($host['oldest']) + LOGIN_IP_WINDOW - time());
+    }
+    return max(0, $wait);
+}
+
+function record_failed_login(string $username): void
+{
+    db_exec('INSERT INTO login_attempts (username, ip_address) VALUES (?, ?)', [login_key($username), client_ip()]);
+    // Keep the table small; old rows no longer affect any window.
+    db_exec('DELETE FROM login_attempts WHERE attempted_at < DATE_SUB(NOW(), INTERVAL 1 DAY)');
+}
+
+/** Lets a username sign in again right away (after a password reset, or a successful sign-in). */
+function clear_failed_logins(string $username, bool $allComputers = false): void
+{
+    if ($allComputers) {
+        db_exec('DELETE FROM login_attempts WHERE username = ?', [login_key($username)]);
+    } else {
+        db_exec('DELETE FROM login_attempts WHERE username = ? AND ip_address = ?', [login_key($username), client_ip()]);
+    }
+}
+
 /**
  * Checks credentials and starts the admin session.
  * Returns null on success or an error message.
- *
- * Failed attempts are counted on the admin row (not in the browser session),
- * so clearing cookies does not reset the count.
  */
 function attempt_login(string $username, string $password): ?string
 {
+    $wait = login_wait_seconds($username);
+    if ($wait > 0) {
+        $minutes = max(1, (int) ceil($wait / 60));
+        return "Too many failed sign-in attempts from this computer. Try again in {$minutes} minute(s).";
+    }
+
     $admin = db_one(
-        'SELECT id, password_hash, status, session_version, must_change_password,
-                (locked_until IS NOT NULL AND locked_until > NOW()) AS is_locked,
-                TIMESTAMPDIFF(SECOND, NOW(), locked_until) AS lock_seconds
-           FROM admins WHERE username = ?',
+        'SELECT id, username, password_hash, status, session_version, must_change_password FROM admins WHERE username = ?',
         [$username]
     );
 
-    if (!$admin) {
-        // Spend the same time as a real check so response times do not reveal valid usernames.
-        password_verify($password, '$2y$10$DTFs5fzvRBihv7gz6.v1qeK6JZluTADuNwhZPbwb6cDZhAvdXECAG');
-        return 'Invalid username or password.';
-    }
-
-    if ((int) $admin['is_locked'] === 1) {
-        $wait = max(1, (int) ceil(((int) $admin['lock_seconds']) / 60));
-        return "Too many failed attempts. This account is locked; try again in {$wait} minute(s).";
-    }
-
-    if (!password_verify($password, $admin['password_hash'])) {
-        // One atomic statement: count the failure and lock the account on the limit.
-        db_exec(
-            'UPDATE admins
-                SET locked_until    = IF(failed_attempts + 1 >= ?, DATE_ADD(NOW(), INTERVAL ? SECOND), locked_until),
-                    failed_attempts = IF(failed_attempts + 1 >= ?, 0, failed_attempts + 1)
-              WHERE id = ?',
-            [LOGIN_MAX_ATTEMPTS, LOGIN_LOCK_SECONDS, LOGIN_MAX_ATTEMPTS, $admin['id']]
-        );
+    // Unknown usernames still cost one bcrypt check, so response times do not reveal valid usernames.
+    $valid = password_verify($password, $admin['password_hash'] ?? '$2y$10$DTFs5fzvRBihv7gz6.v1qeK6JZluTADuNwhZPbwb6cDZhAvdXECAG');
+    if (!$admin || !$valid) {
+        record_failed_login($username);
         return 'Invalid username or password.';
     }
 
@@ -163,10 +208,8 @@ function attempt_login(string $username, string $password): ?string
     // The published default password must always be replaced, whatever the flag says.
     $mustChange = (int) $admin['must_change_password'] === 1 || hash_equals(DEFAULT_ADMIN_PASSWORD, $password);
 
-    db_exec(
-        'UPDATE admins SET last_login = NOW(), failed_attempts = 0, locked_until = NULL, must_change_password = ? WHERE id = ?',
-        [$mustChange ? 1 : 0, $admin['id']]
-    );
+    db_exec('UPDATE admins SET last_login = NOW(), must_change_password = ? WHERE id = ?', [$mustChange ? 1 : 0, $admin['id']]);
+    clear_failed_logins($username);
 
     session_regenerate_id(true);
     $_SESSION['admin_id']        = (int) $admin['id'];
@@ -178,20 +221,20 @@ function attempt_login(string $username, string $password): ?string
 }
 
 /**
- * Sets a new password and signs the account out of every other browser.
- * $temporary = true forces the owner to choose their own password at next sign-in
- * (used when another administrator sets it). Returns the new session version.
+ * Sets a new password, signs the account out of every other browser and lifts any
+ * sign-in throttle on that username. $temporary = true forces the owner to choose
+ * their own password at next sign-in (used when another administrator sets it).
+ * Returns the new session version.
  */
 function set_admin_password(int $adminId, string $password, bool $temporary): int
 {
     db_exec(
-        'UPDATE admins
-            SET password_hash = ?, must_change_password = ?, session_version = session_version + 1,
-                failed_attempts = 0, locked_until = NULL
-          WHERE id = ?',
+        'UPDATE admins SET password_hash = ?, must_change_password = ?, session_version = session_version + 1 WHERE id = ?',
         [password_hash($password, PASSWORD_DEFAULT), $temporary ? 1 : 0, $adminId]
     );
-    return (int) db_value('SELECT session_version FROM admins WHERE id = ?', [$adminId]);
+    $row = db_one('SELECT username, session_version FROM admins WHERE id = ?', [$adminId]);
+    clear_failed_logins($row['username'], true);
+    return (int) $row['session_version'];
 }
 
 function logout_admin(): void
