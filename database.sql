@@ -24,14 +24,27 @@ CREATE TABLE admins (
     email           VARCHAR(120) NULL,
     status          ENUM('Active','Inactive') NOT NULL DEFAULT 'Active',
     must_change_password TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1 = default/temporary password; blocked until changed',
-    failed_attempts TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'consecutive failed sign-ins',
-    locked_until    DATETIME NULL COMMENT 'sign-in blocked until this time after too many failures',
     session_version INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'bumped on password change to sign out other sessions',
     last_login      DATETIME NULL,
     created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uq_admins_username (username)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------
+-- login_attempts: failed sign-ins, used to throttle guessing per computer
+-- (per username + IP and per IP). Rows older than a day are pruned.
+-- ---------------------------------------------------------------------
+CREATE TABLE login_attempts (
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    username        VARCHAR(50)  NOT NULL,
+    ip_address      VARCHAR(45)  NOT NULL,
+    attempted_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_login_attempts_pair (username, ip_address, attempted_at),
+    KEY idx_login_attempts_ip (ip_address, attempted_at),
+    KEY idx_login_attempts_time (attempted_at)
 ) ENGINE=InnoDB;
 
 -- ---------------------------------------------------------------------

@@ -103,7 +103,7 @@ To start empty, delete the sample books and users from the interface. You can al
 - Passwords are hashed with `password_hash()` (bcrypt).
 - On login the session ID is regenerated. The session cookie is HttpOnly and SameSite=Lax.
 - Sessions sign out after 60 minutes of inactivity.
-- After 5 failed sign-ins the **account** is locked for 5 minutes. The count is kept in the database, so clearing cookies or using another browser does not reset it. Unknown usernames get the same message as wrong passwords.
+- Failed sign-ins are throttled **per computer**, in the database (clearing cookies does not reset it): 5 failures for one username from one computer block that pair for 5 minutes, and 20 failures from one computer block it for 15 minutes. Accounts themselves are never locked, so someone guessing cannot lock the librarian out from another computer. The block and its message are the same for real and made-up usernames, so they reveal nothing about which accounts exist. Resetting a password lifts any block on that username.
 - The default `admin123` password, and any password set by another administrator, must be replaced before the rest of the system can be used.
 - Changing or resetting a password signs that account out of every other browser; deactivating an administrator ends their sessions immediately.
 - Every form carries a CSRF token, and every query uses prepared statements. All output is escaped.
